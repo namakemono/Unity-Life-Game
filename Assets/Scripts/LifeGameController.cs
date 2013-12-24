@@ -2,84 +2,84 @@
 using System.Collections;
 
 public class LifeGameController : MonoBehaviour {
-	public const int MAX_HEIGHT = 512;
-	public const int MAX_WIDTH = 512;
-	private Texture2D curMap;
-	private Texture2D nextMap;
+	private static int MAX_WIDTH;
+	private static int MAX_HEIGHT;
+	private static int SCREEN_WIDTH;
+	private static int NUM_CELLS;
+	private static int CELL_SIZE = 3;
+	private float frequency = 0.05f;
 	private bool evaluating = false;
+	private bool[][] pairMap;
 	private static Color32 alive = Color.yellow;
 	private static Color32 dead = Color.white;
+	private Color32[] pixels;
+	private Texture2D texture;
+	private static int[] neighbors;
+	private int turn = 0;
 
 	void Start () {
-		this.Initialize();
-	}
-
-	void Initialize() {
-		Color32[] pixels = new Color32[MAX_WIDTH * MAX_HEIGHT];
-		for (int x = 0; x < MAX_WIDTH; ++x) {
-			for (int y = 0; y < MAX_HEIGHT; ++y) {
-				pixels[x + MAX_WIDTH * y] = (Random.value < 0.05f) ? alive : dead;
-			}
-		}
-		this.curMap = new Texture2D(MAX_WIDTH, MAX_HEIGHT);
-		this.curMap.SetPixels32(pixels);
-		this.curMap.Apply();
-		this.nextMap = new Texture2D(MAX_WIDTH, MAX_HEIGHT);
+		MAX_HEIGHT = Screen.height / CELL_SIZE;
+		MAX_WIDTH = Screen.width / CELL_SIZE;
+		SCREEN_WIDTH = MAX_WIDTH * CELL_SIZE;
+		NUM_CELLS = MAX_WIDTH * MAX_HEIGHT;
+		neighbors = new int[]{-MAX_WIDTH - 1, -MAX_WIDTH, -MAX_WIDTH + 1, -1, 1, MAX_WIDTH - 1, MAX_WIDTH, MAX_WIDTH + 1};
+		this.pairMap = new bool[2][];
+		for (int i = 0; i < this.pairMap.Length; ++i)
+			this.pairMap[i] = new bool[NUM_CELLS];
+		for (int i = 0; i < (int)(NUM_CELLS * frequency); ++i)
+			this.pairMap[0][Random.Range(0, NUM_CELLS)] = true;
+		this.pixels = new Color32[NUM_CELLS * CELL_SIZE * CELL_SIZE];
+		this.texture = new Texture2D(MAX_WIDTH * CELL_SIZE, MAX_HEIGHT * CELL_SIZE);
 	}
 	
 	void Update () {
 		if (!evaluating) {
 			evaluating = true;
-			StartCoroutine("Evaluate");
+			StartCoroutine("Simulate");
 		}
 	}
 
-	bool InField(int x, int y) {
-		return (0 <= x && x < MAX_WIDTH && 0 <= y && y < MAX_HEIGHT);
-	}
-
-	int GetPixelPosition(int x, int y) {
-		return x + MAX_WIDTH * y;
-	}
-
-	// 生きているセルには青を入れないようにしている
-	bool IsAlive(ref Color32 c) {
-		return (c.b == alive.b);
-	}
-
-	int GetNumAlive(int x, int y, ref Color32[] pixels) {
+	int GetNumAlive(int position, ref bool[] map) {
 		int cnt = 0;
-		for (int dx = -1; dx <= 1; ++dx) {
-			for (int dy = -1; dy <= 1; ++dy) {
-				if (((dx|dy) != 0) && this.InField(x+dx, y+dy)) {
-					if(this.IsAlive(ref pixels[this.GetPixelPosition(x+dx, y+dy)])) ++cnt;
-				}
-			}
-		}
+		for (int i = 0; i < neighbors.Length; ++i)
+			if (map[(position + neighbors[i] + NUM_CELLS) % NUM_CELLS])
+				++cnt;
 		return cnt;
 	}
 
-	IEnumerator Evaluate() {
-		yield return new WaitForSeconds(0.3f);
-		Color32[] curPixels = this.curMap.GetPixels32();
-		Color32[] nextPixels = curPixels;
-		for (int x = 0; x < MAX_WIDTH; ++x) {
-			for (int y = 0; y < MAX_HEIGHT; ++y) {
-				int cnt = this.GetNumAlive(x, y, ref curPixels);
-				if (this.IsAlive(ref curPixels[this.GetPixelPosition(x, y)])) {
-					nextPixels[this.GetPixelPosition(x, y)] = ((cnt == 2) || (cnt == 3)) ? alive : dead;
-				} else { // Dead
-					nextPixels[this.GetPixelPosition(x, y)] = (cnt == 3) ? alive : dead;
-				}
-			}
-		}
-		this.curMap.SetPixels32(nextPixels);
-		this.curMap.Apply();
+	IEnumerator Simulate() {
+		yield return new WaitForSeconds(0.1f);
+		this.Evaluate(ref this.pairMap[this.turn % 2], ref this.pairMap[(this.turn + 1) % 2]);
+		this.Render(ref this.pairMap[this.turn % 2]);
 		this.evaluating = false;
+		++this.turn;
 		yield return null;
 	}
 
+	void Evaluate(ref bool[] curMap, ref bool[] nextMap) {
+		for (int i = 0; i < NUM_CELLS; ++i) {
+			int cnt = this.GetNumAlive(i, ref curMap);
+			nextMap[i] = ((curMap[i] && (cnt == 2)) || (cnt == 3));
+		}
+	}
+
+	void Render(ref bool[] map) {
+		for (int x = 0; x < MAX_WIDTH; ++x) {
+			for (int y = 0; y < MAX_HEIGHT; ++y) {
+				Color32 deadOrAlive = map[x + MAX_WIDTH * y] ? alive : dead;
+				for (int dx = 0; dx < CELL_SIZE; ++dx) {
+					for (int dy = 0; dy < CELL_SIZE; ++dy) {
+						int pos = (x + y * SCREEN_WIDTH) * CELL_SIZE + (dx + dy * SCREEN_WIDTH);
+						this.pixels[pos] = deadOrAlive;
+					}
+				}
+			}
+		}
+		this.texture.SetPixels32(this.pixels);
+		this.texture.Apply();
+	}
+
 	void OnGUI() {
-		GUI.DrawTexture(new Rect(0, 0, MAX_WIDTH, MAX_HEIGHT), this.curMap);
+		GUI.DrawTexture(new Rect(0, 0, this.texture.width, this.texture.height), this.texture);
 	}
 }
